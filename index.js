@@ -254,9 +254,9 @@ const replace_condition_card_images = async (vmod_dir_path, xwing_data_path) => 
 }
 
 const match_crit_card_images = async (image_files, xwing_data_path) => {
-  // TODO: Yeah, I have no idea how to resolve the different damage decks here.
-  // TODO: The Vassal mod seems to only have the general crit names.
-  // TODO: Maybe the `_revised` images are from the TFA deck?
+  // Yeah, I have no idea how to resolve the different damage decks here.
+  // The Vassal mod seems to only have the general crit names.
+  // Maybe the `_revised` images are from the TFA deck?
   return []
 }
 
