@@ -1,0 +1,413 @@
+import _ from 'lodash'
+import archiver from 'archiver'
+import fs from 'fs'
+import Git from 'nodegit'
+import Jimp from 'jimp'
+import { stdout } from 'single-line-log'
+import path from 'path'
+import request from 'request'
+import progress from 'request-progress'
+import rimraf from 'rimraf'
+import unzipper from 'unzipper'
+
+import condition_mappings from './condition-mappings.json'
+import pilot_mappings from './pilot-mappings.json'
+import upgrade_mappings from './upgrade-mappings.json'
+import ignored from './ignored.json'
+
+/*
+ * Card patterns:
+ * - Pilot : Pilot(-|_)({pilot_name}.jpg
+ * - Upgrade : Up-{upgrade_name}.jpg
+ * - Condition: Cond-{condition_name}.jpg
+ * - Damage : Hit-{crit_name}.png
+ */
+
+const vmod_filename = 'Star_Wars_X-Wing_Miniatures_Game-7.7.1.vmod'
+const vmod_sub_path = '/7/75'
+
+const create_tmp_dir = (tmp_dir) => {
+  const dir = path.join(__dirname, tmp_dir)
+  console.log(`Creating temp directory at ${dir}`)
+  fs.mkdirSync(dir)
+}
+
+const remove_xwing_tmp_dir = dir => new Promise(resolve => {
+  console.log(`Removing temp directory at ${dir}`)
+  rimraf(dir, () => {
+    console.log(`Removed ${dir}`)
+    resolve()
+  })
+})
+
+const remove_vmod_dir = async vmod_dir_path => new Promise(resolve => {
+  console.log(`Removing vmod directory at ${vmod_dir_path}`)
+  rimraf(vmod_dir_path, () => {
+    console.log(`Removed ${vmod_dir_path}`)
+    resolve()
+  })
+})
+
+const clone_xwing_data = async (xwing_tmp_dir) => {
+  console.log(`Cloning xwing-data repo in ${xwing_tmp_dir}`)
+  const xwing_data_url = 'https://github.com/guidokessels/xwing-data.git'
+  return await Git.Clone(xwing_data_url, xwing_tmp_dir)
+}
+
+const download_vassal_module = tmp_dir => new Promise((resolve, reject) => {
+  const filename = vmod_filename
+  const host = 'www.vassalengine.org'
+  const uri = `/mediawiki/images${vmod_sub_path}/${filename}`
+  const download_path = path.join(__dirname, tmp_dir)
+
+  stdout(`Downloading ${filename} to ${download_path}\n`)
+
+  progress(request(`http://${host}${uri}`))
+    .on('progress', state => {
+      let msg = `Downloading ${filename}: ${Math.floor(state.percent * 100)}%`
+      if (state.time.remaining) {
+        msg += `  ::  ${Math.floor(state.time.remaining)}s remaining  ::  ${Math.floor(state.speed / 1000)}/kbps`
+      }
+      stdout(`${msg}\n`)
+    })
+    .on('end', () => {
+      stdout.clear()
+      resolve(path.join(download_path, filename))
+    })
+    .pipe(fs.createWriteStream(path.join(download_path, filename)))
+})
+
+const unzip_vmod = (tmp_dir, vmod_file_path) => new Promise(resolve => {
+  const vmod_filename = path.basename(vmod_file_path, '.vmod')
+  const extract_path = path.join(tmp_dir, vmod_filename)
+
+  fs.mkdirSync(extract_path)
+
+  console.log(`Unzipping ${vmod_file_path} to ${extract_path}`)
+
+  fs.createReadStream(vmod_file_path)
+    .pipe(unzipper.Extract({ path: extract_path }))
+    .on('close', () => resolve(extract_path))
+})
+
+const match_pilot_images = async (vmod_pilot_image_files, xwing_data_path) => {
+  const xwing_data_pilot_data = JSON.parse(fs.readFileSync(path.join(xwing_data_path, 'data', 'pilots.js'), 'utf8'))
+  let images_to_copy = []
+  let unmatched_files = []
+  let skipped_files = []
+
+  vmod_pilot_image_files.forEach( file => {
+    const skip = ignored.filter(name => name === file).length === 1
+    if (skip) {
+      console.log('Skipping', file)
+      skipped_files.push(file)
+    } else {
+      console.log('Attempting to match', file, 'to a pilot...')
+      const mapping = pilot_mappings[file]
+      if (mapping) {
+        const pilot = _.find(xwing_data_pilot_data, {id: mapping})
+        if (pilot) {
+          console.log('Matched pilot, ', pilot.name)
+
+          images_to_copy.push({
+            vmod: { image: file },
+            xwing_data: { image: pilot.image }
+          })
+        }
+      } else {
+        const name = file
+          .replace(/Pilot([-_])/, '')
+          .replace('.jpg', '')
+          .replace(/_/g, ' ')
+          .replace(/ Sq /, ' Squadron ')
+          .replace(/-/, ' ')
+
+        let pilot = _.find(xwing_data_pilot_data, {name})
+
+        if (!pilot) {
+          const foundPilots = xwing_data_pilot_data.filter(p => {
+            const p_name = p.name.toLowerCase()
+            const file_name = `"${name.toLowerCase()}"`
+            return p_name === file_name
+          })
+
+          if (foundPilots && foundPilots.length === 1) {
+            pilot = foundPilots[0]
+          }
+        }
+
+        if (pilot) {
+          console.log('Matched pilot, ', pilot.name)
+          images_to_copy.push({
+            vmod: { image: file },
+            xwing_data: { image: pilot.image }
+          })
+        } else {
+          unmatched_files.push({file, name})
+        }
+      }
+    }
+  })
+
+  console.log(vmod_pilot_image_files.length, 'pilot images in vmod file...')
+  console.log(skipped_files.length, 'skipped images')
+  console.log(unmatched_files.length, 'unmatched images')
+  console.log(images_to_copy.length, 'pilot card images matched')
+
+  return images_to_copy
+}
+
+const remove_file = async file_path => new Promise((resolve, reject) => {
+  rimraf(file_path, () => resolve(), () => reject())
+})
+
+const replace_image_with = async (old_image, new_image) => {
+  await remove_file(old_image)
+  const pilot_image = await Jimp.read(new_image)
+  pilot_image.write(old_image)
+}
+
+const replace_images = async (images_to_copy, vmod_dir_path, xwing_data_path) => {
+  await Promise.all(images_to_copy.map(async image_data => {
+    const vmod_image_file = image_data.vmod.image
+    const vmod_image = path.join(vmod_dir_path, 'images', vmod_image_file)
+    const xwd_image = path.join(xwing_data_path, 'images', image_data.xwing_data.image)
+
+    await replace_image_with(vmod_image, xwd_image)
+    console.log(vmod_image_file, 'updated!')
+  }))
+}
+
+const replace_pilot_images = async (vmod_dir_path, xwing_data_path) => {
+  const vmod_images_path = path.join(vmod_dir_path, 'images')
+  const vmod_pilot_image_files = fs.readdirSync(vmod_images_path).filter(file => file.startsWith('Pilot'))
+  const images_to_copy = await match_pilot_images(vmod_pilot_image_files, xwing_data_path)
+  await replace_images(images_to_copy, vmod_dir_path, xwing_data_path)
+}
+
+const match_condition_images = async (vmod_condition_image_files, xwing_data_path) => {
+  const xwing_data_condition_data = JSON.parse(fs.readFileSync(path.join(xwing_data_path, 'data', 'conditions.js'), 'utf8'))
+  let images_to_copy = []
+  let unmatched_files = []
+  let skipped_files = []
+
+  vmod_condition_image_files.forEach( file => {
+    const skip = ignored.filter(name => name === file).length === 1
+    if (skip) {
+      console.log('Skipping', file)
+      skipped_files.push(file)
+    } else {
+      console.log('Attempting to match', file, 'to a condition')
+      const mapping = condition_mappings[file]
+
+      if (mapping !== undefined) {
+        let condition = _.find(xwing_data_condition_data, { id: mapping })
+
+        if (condition) {
+          console.log('Matched condition', condition.name)
+          images_to_copy.push({
+            vmod: { image: file },
+            xwing_data: { image: condition.image }
+          })
+        }
+      } else {
+        const name = file
+          .replace('Cond-', '')
+          .replace(/[_\-]/g, ' ')
+          .replace('.jpg', '')
+
+        let condition = _.find(xwing_data_condition_data, { name })
+
+        if (condition) {
+          console.log('Matched condition', condition.name)
+          images_to_copy.push({
+            vmod: { image: file },
+            xwing_data: { image: condition.image }
+          })
+        } else {
+          unmatched_files.push({ file, name })
+        }
+      }
+    }
+  })
+
+  console.log(vmod_condition_image_files.length, 'condition images in vmod file...')
+  console.log(skipped_files.length, 'skipped images')
+  console.log(unmatched_files.length, 'unmatched images')
+  console.log(images_to_copy.length, 'condition card images matched')
+
+  if (unmatched_files.length) {
+    console.log('Unmatched files', unmatched_files)
+  }
+
+  return images_to_copy
+}
+
+const replace_condition_card_images = async (vmod_dir_path, xwing_data_path) => {
+  const vmod_images_path = path.join(vmod_dir_path, 'images')
+  const vmod_condition_image_files = fs.readdirSync(vmod_images_path).filter(file => (
+    file.startsWith('Cond-') && file.endsWith('.jpg')
+  ))
+
+  const images_to_copy = await match_condition_images(vmod_condition_image_files, xwing_data_path)
+  await replace_images(images_to_copy, vmod_dir_path, xwing_data_path)
+}
+
+const match_crit_card_images = async (image_files, xwing_data_path) => {
+  // TODO: Yeah, I have no idea how to resolve the different damage decks here.
+  // TODO: The Vassal mod seems to only have the general crit names.
+  // TODO: Maybe the `_revised` images are from the TFA deck?
+  return []
+}
+
+const replace_crit_card_images = async (vmod_dir_path, xwing_data_path) => {
+  const vmod_images_path = path.join(vmod_dir_path, 'images')
+  const vmod_image_files = fs.readdirSync(vmod_images_path).filter( file => file.startsWith('Hit-'))
+  const images_to_copy = await match_crit_card_images(vmod_image_files, xwing_data_path)
+  await replace_images(images_to_copy, vmod_dir_path, xwing_data_path)
+}
+
+const match_upgrade_card_images = async (image_files, xwing_data_path) => {
+  const xwing_data_upgrade_data = JSON.parse(fs.readFileSync(path.join(xwing_data_path, 'data', 'upgrades.js'), 'utf8'))
+  let images_to_copy = []
+  let unmatched_files = []
+  let skipped_files = []
+
+  image_files.forEach( file => {
+    const skip = ignored.filter(name => name === file).length === 1
+    if (skip) {
+      console.log('Skipping', file)
+      skipped_files.push(file)
+    } else {
+      console.log('Attempting to match', file, 'to an upgrade')
+      const mapping = upgrade_mappings[file]
+
+      if (mapping !== undefined) {
+        let upgrade = _.find(xwing_data_upgrade_data, { id: mapping })
+
+        if (upgrade) {
+          console.log('Matched upgrade', upgrade.name)
+          images_to_copy.push({
+            vmod: { image: file },
+            xwing_data: { image: upgrade.image }
+          })
+        }
+      } else {
+        let name = file
+          .replace('Up-', '')
+          .replace(/_/g, ' ')
+          .replace(/Adv /, 'Advanced ')
+          .replace('.jpg', '')
+
+        let upgrade = _.find(xwing_data_upgrade_data, { name })
+
+        if (!upgrade) {
+          const foundUpgrades = xwing_data_upgrade_data.filter(u => {
+            const u_name = u.name.toLowerCase()
+            const file_name = name.toLowerCase()
+            const quoted_file_name = `"${file_name}"`
+            return u_name === file_name || u_name === quoted_file_name
+          })
+
+          if (foundUpgrades && foundUpgrades.length === 1) {
+            upgrade = foundUpgrades[0]
+          }
+        }
+
+        if (!upgrade) {
+          name = name
+            .replace(/-/g, ' ')
+            .replace(/Adv /, 'Advanced ')
+          upgrade = _.find(xwing_data_upgrade_data, { name })
+        }
+
+        if (upgrade) {
+          console.log('Matched upgrade', upgrade.name)
+          images_to_copy.push({
+            vmod: { image: file },
+            xwing_data: { image: upgrade.image }
+          })
+        } else {
+          unmatched_files.push({ file, name })
+        }
+      }
+    }
+  })
+
+  console.log(image_files.length, 'upgrade images in vmod file...')
+  console.log(skipped_files.length, 'skipped images')
+  console.log(unmatched_files.length, 'unmatched images')
+  console.log(images_to_copy.length, 'upgrade card images matched')
+
+  if (unmatched_files.length) {
+    console.log('Unmatched files', unmatched_files)
+  }
+
+  return images_to_copy
+}
+
+const replace_upgrade_card_images = async (vmod_dir_path, xwing_data_path) => {
+  const vmod_images_path = path.join(vmod_dir_path, 'images')
+  const vmod_image_files = fs.readdirSync(vmod_images_path).filter( file => file.startsWith('Up-'))
+  const images_to_copy = await match_upgrade_card_images(vmod_image_files, xwing_data_path)
+  await replace_images(images_to_copy, vmod_dir_path, xwing_data_path)
+}
+
+const create_vmod_file = (tmp_path, vmod_tmp_path) => new Promise((resolve, reject) => {
+  const output = fs.createWriteStream(path.join(__dirname, tmp_path, vmod_filename))
+  const archive = archiver('zip')
+
+  output.on('close', () => {
+    console.log(archive.pointer() + ' total bytes')
+    console.log('archiver has been finalized and the output file descriptor has closed.')
+    resolve()
+  })
+
+  archive.on('error', err => {
+    reject(err)
+  })
+
+  archive.pipe(output)
+  archive.directory(vmod_tmp_path, false)
+
+  archive.finalize()
+})
+
+{
+  // This goes last to kick off the process
+  const tmp_dir = './tmp'
+  const xwing_data_dir = './xwing-data'
+
+  rimraf(tmp_dir, async () => {
+    create_tmp_dir(tmp_dir)
+
+    const xwing_tmp_dir = path.join(__dirname, tmp_dir, xwing_data_dir)
+    rimraf(xwing_tmp_dir, async () => {
+      await clone_xwing_data(xwing_tmp_dir)
+
+      const module_file_path = await download_vassal_module(tmp_dir)
+      console.log(`Vassal module saved to: ${module_file_path}`)
+
+      const vmod_dir_path = await unzip_vmod(path.join(__dirname, tmp_dir), module_file_path)
+
+      // replace pilot cards
+      await replace_pilot_images(vmod_dir_path, xwing_tmp_dir)
+      // replace condition cards
+      await replace_condition_card_images(vmod_dir_path, xwing_tmp_dir)
+      // TODO: replace crit cards
+      await replace_crit_card_images(vmod_dir_path, xwing_tmp_dir)
+      // replace upgrade cards
+      await replace_upgrade_card_images(vmod_dir_path, xwing_tmp_dir)
+
+      // remove old vmod file
+      await remove_file(path.join(__dirname, tmp_dir, vmod_filename))
+      // compress new vmod file
+      await create_vmod_file(tmp_dir, vmod_dir_path)
+
+
+      console.log('Cleaning up...')
+      await remove_xwing_tmp_dir(xwing_tmp_dir)
+      await remove_vmod_dir(vmod_dir_path)
+    })
+  })
+}
