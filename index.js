@@ -11,6 +11,7 @@ import rimraf from 'rimraf'
 import unzipper from 'unzipper'
 
 import condition_mappings from './condition-mappings.json'
+import damage_deck_core_mappings from './damage-deck-core-mappings.json'
 import pilot_mappings from './pilot-mappings.json'
 import upgrade_mappings from './upgrade-mappings.json'
 import ignored from './ignored.json'
@@ -254,10 +255,81 @@ const replace_condition_card_images = async (vmod_dir_path, xwing_data_path) => 
 }
 
 const match_crit_card_images = async (image_files, xwing_data_path) => {
-  // Yeah, I have no idea how to resolve the different damage decks here.
-  // The Vassal mod seems to only have the general crit names.
-  // Maybe the `_revised` images are from the TFA deck?
-  return []
+  const damage_deck_core = JSON.parse(fs.readFileSync(path.join(xwing_data_path, 'data', 'damage-deck-core.js'), 'utf8'))
+  const damage_deck_tfa = JSON.parse(fs.readFileSync(path.join(xwing_data_path, 'data', 'damage-deck-core-tfa.js'), 'utf8'))
+
+  // this just covers the core and tfa damage decks
+
+  let images_to_copy = []
+  let unmatched_files = []
+  let skipped_files = []
+
+  image_files.forEach( file => {
+    const skip = ignored.filter(name => name === file).length === 1
+    if (skip) {
+      console.log('Skipping', file)
+      skipped_files.push(file)
+    } else {
+      console.log('Attempting to match', file, 'to a crit card')
+      const is_revised = file.endsWith('_revised.png')
+      let name = file
+        .replace('Hit-', '')
+        .replace('.png', '')
+        .replace(/_/g, ' ')
+
+      if (is_revised) {
+        name = name.replace('revised', '').trim()
+        console.log('Looking up', name, 'from The Force Awakens damage deck')
+        const card = _.find(damage_deck_tfa, { name })
+
+        if (card) {
+          images_to_copy.push({
+            vmod: { image: file },
+            xwing_data: { image: card.image }
+          })
+        } else {
+          unmatched_files.push({ file, name })
+        }
+
+      } else {
+        console.log('Looking up', name, 'from the core damage deck')
+
+        const mapping = damage_deck_core_mappings[file]
+
+        if (mapping) {
+          name = mapping
+        }
+
+        let card = _.find(damage_deck_core, { name })
+
+        if (card) {
+          images_to_copy.push({
+            vmod: { image: file },
+            xwing_data: { image: card.image }
+          })
+        } else if (card = _.find(damage_deck_tfa, { name })) {
+          images_to_copy.push({
+            vmod: { image: file },
+            xwing_data: { image: card.image }
+          })
+        } else {
+          unmatched_files.push({ file, name })
+        }
+      }
+
+    }
+  })
+
+  console.log(image_files.length, 'crit card images in vmod file...')
+  console.log(skipped_files.length, 'skipped images')
+  console.log(unmatched_files.length, 'unmatched images')
+  console.log(images_to_copy.length, 'crit card images matched')
+
+  if (unmatched_files.length) {
+    console.log('Unmatched files', unmatched_files)
+  }
+
+  return images_to_copy
 }
 
 const replace_crit_card_images = async (vmod_dir_path, xwing_data_path) => {
@@ -392,15 +464,19 @@ const create_vmod_file = (tmp_path, vmod_tmp_path) => new Promise((resolve, reje
 
       // replace pilot cards
       await replace_pilot_images(vmod_dir_path, xwing_tmp_dir)
+
       // replace condition cards
       await replace_condition_card_images(vmod_dir_path, xwing_tmp_dir)
-      // TODO: replace crit cards
+
+      // replace crit cards
       await replace_crit_card_images(vmod_dir_path, xwing_tmp_dir)
+
       // replace upgrade cards
       await replace_upgrade_card_images(vmod_dir_path, xwing_tmp_dir)
 
       // remove old vmod file
       await remove_file(path.join(__dirname, tmp_dir, vmod_filename))
+
       // compress new vmod file
       await create_vmod_file(tmp_dir, vmod_dir_path)
 
