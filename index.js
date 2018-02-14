@@ -34,15 +34,13 @@ const create_tmp_dir = (tmp_dir) => {
 }
 
 const remove_xwing_tmp_dir = dir => new Promise(resolve => {
-  console.log(`Removing temp directory at ${dir}`)
   rimraf(dir, () => {
     console.log(`Removed ${dir}`)
     resolve()
   })
 })
 
-const remove_vmod_dir = async vmod_dir_path => new Promise(resolve => {
-  console.log(`Removing vmod directory at ${vmod_dir_path}`)
+const remove_vmod_dir = vmod_dir_path => new Promise(resolve => {
   rimraf(vmod_dir_path, () => {
     console.log(`Removed ${vmod_dir_path}`)
     resolve()
@@ -162,19 +160,25 @@ const remove_file = async file_path => new Promise((resolve, reject) => {
   rimraf(file_path, () => resolve(), () => reject())
 })
 
-const replace_image_with = async (old_image, new_image) => {
+const replace_image_with = async (old_image, new_image, width, height) => {
   await remove_file(old_image)
   const pilot_image = await Jimp.read(new_image)
+
+  if (width && height) {
+    pilot_image.resize(width, height)
+  }
+
+  pilot_image.quality(100)
   pilot_image.write(old_image)
 }
 
-const replace_images = async (images_to_copy, vmod_dir_path, xwing_data_path) => {
+const replace_images = async (images_to_copy, vmod_dir_path, xwing_data_path, width, height) => {
   await Promise.all(images_to_copy.map(async image_data => {
     const vmod_image_file = image_data.vmod.image
     const vmod_image = path.join(vmod_dir_path, 'images', vmod_image_file)
     const xwd_image = path.join(xwing_data_path, 'images', image_data.xwing_data.image)
 
-    await replace_image_with(vmod_image, xwd_image)
+    await replace_image_with(vmod_image, xwd_image, width, height)
     console.log(vmod_image_file, 'updated!')
   }))
 }
@@ -336,7 +340,7 @@ const replace_crit_card_images = async (vmod_dir_path, xwing_data_path) => {
   const vmod_images_path = path.join(vmod_dir_path, 'images')
   const vmod_image_files = fs.readdirSync(vmod_images_path).filter( file => file.startsWith('Hit-'))
   const images_to_copy = await match_crit_card_images(vmod_image_files, xwing_data_path)
-  await replace_images(images_to_copy, vmod_dir_path, xwing_data_path)
+  await replace_images(images_to_copy, vmod_dir_path, xwing_data_path, 108, 162)
 }
 
 const match_upgrade_card_images = async (image_files, xwing_data_path) => {
@@ -426,12 +430,12 @@ const replace_upgrade_card_images = async (vmod_dir_path, xwing_data_path) => {
 }
 
 const create_vmod_file = (tmp_path, vmod_tmp_path) => new Promise((resolve, reject) => {
-  const output = fs.createWriteStream(path.join(__dirname, tmp_path, vmod_filename))
+  const vmod_output_path = path.join(__dirname, tmp_path, vmod_filename)
+  const output = fs.createWriteStream(vmod_output_path)
   const archive = archiver('zip')
 
   output.on('close', () => {
-    console.log(archive.pointer() + ' total bytes')
-    console.log('archiver has been finalized and the output file descriptor has closed.')
+    console.log(`New vmod file has been generated @ ${vmod_output_path}`)
     resolve()
   })
 
