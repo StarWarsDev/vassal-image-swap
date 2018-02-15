@@ -7,7 +7,10 @@
   "author": "Steve Good <sgood@lanctr.com>",
   "license": "MIT",
   "scripts": {
-    "swap": "babel-node ./index.js"
+    "swap": "babel-node ./index.js",
+    "minor": "release-it minor",
+    "major": "release-it major",
+    "patch": "release-it patch"
   },
   "dependencies": {
     "archiver": "^2.1.1",
@@ -23,5 +26,8 @@
     "rimraf": "^2.6.2",
     "single-line-log": "^1.1.2",
     "unzipper": "^0.8.11"
+  },
+  "devDependencies": {
+    "release-it": "^7.0.2"
   }
 }
