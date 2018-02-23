@@ -1,5 +1,7 @@
 # Vassal Card Swap
 
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/3c048436560d43b59321fc7f46320695)](https://app.codacy.com/app/sgood/vassal-image-swap?utm_source=github.com&utm_medium=referral&utm_content=StarWarsDev/vassal-image-swap&utm_campaign=badger)
+
 An easy to use utility script that generates a new X-Wing Miniatures Vassal Module (vmod) file with full text card images.
 
 ## Cards replaced
