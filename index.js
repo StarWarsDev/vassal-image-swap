@@ -23,9 +23,8 @@ import ignored from './ignored.json'
  * - Condition: Cond-{condition_name}.jpg
  * - Damage : Hit-{crit_name}.png
  */
-
-const vmod_filename = 'Star_Wars_X-Wing_Miniatures_Game-7.7.1.vmod'
-const vmod_sub_path = '/7/75'
+const vmod_version = '8.0.0'
+const vmod_filename = `Star_Wars_X-Wing_Miniatures_Game-${vmod_version}.vmod`
 
 const create_tmp_dir = (tmp_dir) => {
   const dir = path.join(__dirname, tmp_dir)
@@ -54,14 +53,13 @@ const clone_xwing_data = async (xwing_tmp_dir) => {
 }
 
 const download_vassal_module = tmp_dir => new Promise((resolve, reject) => {
+  const vmod_download_url = `https://github.com/Mu0n/XWVassal/releases/download/${vmod_version}/Star_Wars_X-Wing_Miniatures_Game-${vmod_version}.vmod`
   const filename = vmod_filename
-  const host = 'www.vassalengine.org'
-  const uri = `/mediawiki/images${vmod_sub_path}/${filename}`
   const download_path = path.join(__dirname, tmp_dir)
 
   stdout(`Downloading ${filename} to ${download_path}\n`)
 
-  progress(request(`http://${host}${uri}`))
+  progress(request(vmod_download_url))
     .on('progress', state => {
       let msg = `Downloading ${filename}: ${Math.floor(state.percent * 100)}%`
       if (state.time.remaining) {
@@ -351,7 +349,9 @@ const match_upgrade_card_images = async (image_files, xwing_data_path) => {
 
   image_files.forEach( file => {
     const skip = ignored.filter(name => name === file).length === 1
-    if (skip) {
+    const endsWithBack = file.endsWith('_back.jpg')
+    const isMapped = upgrade_mappings[file] !== undefined
+    if (!isMapped && (skip || endsWithBack)) {
       console.log('Skipping', file)
       skipped_files.push(file)
     } else {
@@ -369,32 +369,24 @@ const match_upgrade_card_images = async (image_files, xwing_data_path) => {
           })
         }
       } else {
-        let name = file
-          .replace('Up-', '')
+        let xws = file
+          .replace('Upgrade_', '')
+          .replace(/(Astromech|Bomb|Cannon|Cargo|Crew|Elite|Hardpoint|Illicit|Missile|Modification|SalvagedAstromech|System|Team|Tech|Title|Torpedo|Turret)_/, '')
           .replace(/_/g, ' ')
-          .replace(/Adv /, 'Advanced ')
           .replace('.jpg', '')
 
-        let upgrade = _.find(xwing_data_upgrade_data, { name })
+        let upgrade = _.find(xwing_data_upgrade_data, { xws })
 
         if (!upgrade) {
           const foundUpgrades = xwing_data_upgrade_data.filter(u => {
-            const u_name = u.name.toLowerCase()
-            const file_name = name.toLowerCase()
-            const quoted_file_name = `"${file_name}"`
-            return u_name === file_name || u_name === quoted_file_name
+            const u_xws = u.xws.toLowerCase()
+            const file_xws = xws.toLowerCase()
+            return u_xws === file_xws
           })
 
           if (foundUpgrades && foundUpgrades.length === 1) {
             upgrade = foundUpgrades[0]
           }
-        }
-
-        if (!upgrade) {
-          name = name
-            .replace(/-/g, ' ')
-            .replace(/Adv /, 'Advanced ')
-          upgrade = _.find(xwing_data_upgrade_data, { name })
         }
 
         if (upgrade) {
@@ -404,7 +396,7 @@ const match_upgrade_card_images = async (image_files, xwing_data_path) => {
             xwing_data: { image: upgrade.image }
           })
         } else {
-          unmatched_files.push({ file, name })
+          unmatched_files.push({ file, xws })
         }
       }
     }
@@ -424,7 +416,7 @@ const match_upgrade_card_images = async (image_files, xwing_data_path) => {
 
 const replace_upgrade_card_images = async (vmod_dir_path, xwing_data_path) => {
   const vmod_images_path = path.join(vmod_dir_path, 'images')
-  const vmod_image_files = fs.readdirSync(vmod_images_path).filter( file => file.startsWith('Up-'))
+  const vmod_image_files = fs.readdirSync(vmod_images_path).filter( file => file.startsWith('Upgrade_'))
   const images_to_copy = await match_upgrade_card_images(vmod_image_files, xwing_data_path)
   await replace_images(images_to_copy, vmod_dir_path, xwing_data_path)
 }
