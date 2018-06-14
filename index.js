@@ -214,12 +214,11 @@ const match_condition_images = async (vmod_condition_image_files, xwing_data_pat
           })
         }
       } else {
-        const name = file
-          .replace('Cond-', '')
-          .replace(/[_\-]/g, ' ')
+        const xws = file
+          .replace('Condition_', '')
           .replace('.jpg', '')
 
-        let condition = _.find(xwing_data_condition_data, { name })
+        let condition = _.find(xwing_data_condition_data, { xws })
 
         if (condition) {
           console.log('Matched condition', condition.name)
@@ -228,7 +227,7 @@ const match_condition_images = async (vmod_condition_image_files, xwing_data_pat
             xwing_data: { image: condition.image }
           })
         } else {
-          unmatched_files.push({ file, name })
+          unmatched_files.push({ file, xws })
         }
       }
     }
@@ -249,7 +248,7 @@ const match_condition_images = async (vmod_condition_image_files, xwing_data_pat
 const replace_condition_card_images = async (vmod_dir_path, xwing_data_path) => {
   const vmod_images_path = path.join(vmod_dir_path, 'images')
   const vmod_condition_image_files = fs.readdirSync(vmod_images_path).filter(file => (
-    file.startsWith('Cond-') && file.endsWith('.jpg')
+    file.startsWith('Condition_') && file.endsWith('.jpg')
   ))
 
   const images_to_copy = await match_condition_images(vmod_condition_image_files, xwing_data_path)
