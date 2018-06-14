@@ -173,7 +173,7 @@ const replace_image_with = async (old_image, new_image, width, height) => {
 }
 
 const replace_images = async (images_to_copy, vmod_dir_path, xwing_data_path, width, height) => {
-  const progressBar = new ProgressBar(':image [:percent]', { total: images_to_copy.length + 1 })
+  const progressBar = new ProgressBar(':message [:percent]', { total: images_to_copy.length + 1 })
   await Promise.all(images_to_copy.map(async image_data => {
     const vmod_image_file = image_data.vmod.image
     const vmod_image = path.join(vmod_dir_path, 'images', vmod_image_file)
@@ -181,12 +181,12 @@ const replace_images = async (images_to_copy, vmod_dir_path, xwing_data_path, wi
 
     await replace_image_with(vmod_image, xwd_image, width, height)
     progressBar.tick({
-      image: `Swapping ${vmod_image_file}`
+      message: `Swapping ${vmod_image_file}`
     })
   }))
 
   progressBar.tick({
-    image: 'Swap complete'
+    message: 'Swap complete'
   })
 }
 
