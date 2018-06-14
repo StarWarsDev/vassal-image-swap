@@ -7,6 +7,7 @@ import { stdout } from 'single-line-log'
 import path from 'path'
 import request from 'request'
 import progress from 'request-progress'
+import ProgressBar from 'progress'
 import rimraf from 'rimraf'
 import unzipper from 'unzipper'
 
@@ -96,15 +97,15 @@ const match_pilot_images = async (vmod_pilot_image_files, xwing_data_path) => {
   vmod_pilot_image_files.forEach( file => {
     const skip = ignored.filter(name => name === file).length === 1
     if (skip) {
-      console.log('Skipping', file)
+      // console.log('Skipping', file)
       skipped_files.push(file)
     } else {
-      console.log('Attempting to match', file, 'to a pilot...')
+      // console.log('Attempting to match', file, 'to a pilot...')
       const mapping = pilot_mappings[file]
       if (mapping) {
         const pilot = _.find(xwing_data_pilot_data, {id: mapping})
         if (pilot) {
-          console.log('Matched pilot, ', pilot.name)
+          // console.log('Matched pilot, ', pilot.name)
 
           images_to_copy.push({
             vmod: { image: file },
@@ -134,7 +135,7 @@ const match_pilot_images = async (vmod_pilot_image_files, xwing_data_path) => {
         }
 
         if (pilot) {
-          console.log('Matched pilot, ', pilot.name)
+          // console.log('Matched pilot, ', pilot.name)
           images_to_copy.push({
             vmod: { image: file },
             xwing_data: { image: pilot.image }
@@ -146,10 +147,11 @@ const match_pilot_images = async (vmod_pilot_image_files, xwing_data_path) => {
     }
   })
 
-  console.log(vmod_pilot_image_files.length, 'pilot images in vmod file...')
-  console.log(skipped_files.length, 'skipped images')
-  console.log(unmatched_files.length, 'unmatched images')
-  console.log(images_to_copy.length, 'pilot card images matched')
+  console.log('\n--------------- PILOT CARD IMAGES ---------------')
+  console.log(`${vmod_pilot_image_files.length} pilot images in vmod file`)
+  console.log(`${skipped_files.length} skipped pilot card images`)
+  console.log(`${unmatched_files.length} unmatched pilot card images`)
+  console.log(`${images_to_copy.length} pilot card images matched`)
 
   return images_to_copy
 }
@@ -171,14 +173,21 @@ const replace_image_with = async (old_image, new_image, width, height) => {
 }
 
 const replace_images = async (images_to_copy, vmod_dir_path, xwing_data_path, width, height) => {
+  const progressBar = new ProgressBar(':image [:percent]', { total: images_to_copy.length + 1 })
   await Promise.all(images_to_copy.map(async image_data => {
     const vmod_image_file = image_data.vmod.image
     const vmod_image = path.join(vmod_dir_path, 'images', vmod_image_file)
     const xwd_image = path.join(xwing_data_path, 'images', image_data.xwing_data.image)
 
     await replace_image_with(vmod_image, xwd_image, width, height)
-    console.log(vmod_image_file, 'updated!')
+    progressBar.tick({
+      image: `Swapping ${vmod_image_file}`
+    })
   }))
+
+  progressBar.tick({
+    image: 'Swap complete'
+  })
 }
 
 const replace_pilot_images = async (vmod_dir_path, xwing_data_path) => {
@@ -197,17 +206,17 @@ const match_condition_images = async (vmod_condition_image_files, xwing_data_pat
   vmod_condition_image_files.forEach( file => {
     const skip = ignored.filter(name => name === file).length === 1
     if (skip) {
-      console.log('Skipping', file)
+      // console.log('Skipping', file)
       skipped_files.push(file)
     } else {
-      console.log('Attempting to match', file, 'to a condition')
+      // console.log('Attempting to match', file, 'to a condition')
       const mapping = condition_mappings[file]
 
       if (mapping !== undefined) {
         let condition = _.find(xwing_data_condition_data, { id: mapping })
 
         if (condition) {
-          console.log('Matched condition', condition.name)
+          // console.log('Matched condition', condition.name)
           images_to_copy.push({
             vmod: { image: file },
             xwing_data: { image: condition.image }
@@ -221,7 +230,7 @@ const match_condition_images = async (vmod_condition_image_files, xwing_data_pat
         let condition = _.find(xwing_data_condition_data, { xws })
 
         if (condition) {
-          console.log('Matched condition', condition.name)
+          // console.log('Matched condition', condition.name)
           images_to_copy.push({
             vmod: { image: file },
             xwing_data: { image: condition.image }
@@ -233,14 +242,11 @@ const match_condition_images = async (vmod_condition_image_files, xwing_data_pat
     }
   })
 
-  console.log(vmod_condition_image_files.length, 'condition images in vmod file...')
-  console.log(skipped_files.length, 'skipped images')
-  console.log(unmatched_files.length, 'unmatched images')
-  console.log(images_to_copy.length, 'condition card images matched')
-
-  if (unmatched_files.length) {
-    console.log('Unmatched files', unmatched_files)
-  }
+  console.log('\n--------------- CONDITION CARD IMAGES ---------------')
+  console.log(`${vmod_condition_image_files.length} condition images in vmod file`)
+  console.log(`${skipped_files.length} skipped condition card images`)
+  console.log(`${unmatched_files.length} unmatched condition card images`)
+  console.log(`${images_to_copy.length} condition card images matched`)
 
   return images_to_copy
 }
@@ -268,10 +274,10 @@ const match_crit_card_images = async (image_files, xwing_data_path) => {
   image_files.forEach( file => {
     const skip = ignored.filter(name => name === file).length === 1
     if (skip) {
-      console.log('Skipping', file)
+      // console.log('Skipping', file)
       skipped_files.push(file)
     } else {
-      console.log('Attempting to match', file, 'to a crit card')
+      // console.log('Attempting to match', file, 'to a crit card')
       const is_revised = file.endsWith('_revised.png')
       let name = file
         .replace('Hit-', '')
@@ -280,7 +286,7 @@ const match_crit_card_images = async (image_files, xwing_data_path) => {
 
       if (is_revised) {
         name = name.replace('revised', '').trim()
-        console.log('Looking up', name, 'from The Force Awakens damage deck')
+        // console.log('Looking up', name, 'from The Force Awakens damage deck')
         const card = _.find(damage_deck_tfa, { name })
 
         if (card) {
@@ -293,7 +299,7 @@ const match_crit_card_images = async (image_files, xwing_data_path) => {
         }
 
       } else {
-        console.log('Looking up', name, 'from the core damage deck')
+        // console.log('Looking up', name, 'from the core damage deck')
 
         const mapping = damage_deck_core_mappings[file]
 
@@ -321,14 +327,11 @@ const match_crit_card_images = async (image_files, xwing_data_path) => {
     }
   })
 
-  console.log(image_files.length, 'crit card images in vmod file...')
-  console.log(skipped_files.length, 'skipped images')
-  console.log(unmatched_files.length, 'unmatched images')
-  console.log(images_to_copy.length, 'crit card images matched')
-
-  if (unmatched_files.length) {
-    console.log('Unmatched files', unmatched_files)
-  }
+  console.log('\n--------------- CRIT CARD IMAGES ---------------')
+  console.log(`${image_files.length} crit card images in vmod file`)
+  console.log(`${ skipped_files.length} skipped crit card images`)
+  console.log(`${unmatched_files.length} 'unmatched crit card images`)
+  console.log(`${ images_to_copy.length} crit card images matched`)
 
   return images_to_copy
 }
@@ -351,17 +354,17 @@ const match_upgrade_card_images = async (image_files, xwing_data_path) => {
     const endsWithBack = file.endsWith('_back.jpg')
     const isMapped = upgrade_mappings[file] !== undefined
     if (!isMapped && (skip || endsWithBack)) {
-      console.log('Skipping', file)
+      // console.log('Skipping', file)
       skipped_files.push(file)
     } else {
-      console.log('Attempting to match', file, 'to an upgrade')
+      // console.log('Attempting to match', file, 'to an upgrade')
       const mapping = upgrade_mappings[file]
 
       if (mapping !== undefined) {
         let upgrade = _.find(xwing_data_upgrade_data, { id: mapping })
 
         if (upgrade) {
-          console.log('Matched upgrade', upgrade.name)
+          // console.log('Matched upgrade', upgrade.name)
           images_to_copy.push({
             vmod: { image: file },
             xwing_data: { image: upgrade.image }
@@ -389,7 +392,7 @@ const match_upgrade_card_images = async (image_files, xwing_data_path) => {
         }
 
         if (upgrade) {
-          console.log('Matched upgrade', upgrade.name)
+          // console.log('Matched upgrade', upgrade.name)
           images_to_copy.push({
             vmod: { image: file },
             xwing_data: { image: upgrade.image }
@@ -401,14 +404,11 @@ const match_upgrade_card_images = async (image_files, xwing_data_path) => {
     }
   })
 
-  console.log(image_files.length, 'upgrade images in vmod file...')
-  console.log(skipped_files.length, 'skipped images')
-  console.log(unmatched_files.length, 'unmatched images')
-  console.log(images_to_copy.length, 'upgrade card images matched')
-
-  if (unmatched_files.length) {
-    console.log('Unmatched files', unmatched_files)
-  }
+  console.log('\n--------------- UPGRADE CARD IMAGES ---------------')
+  console.log(`${image_files.length} upgrade card images in vmod file`)
+  console.log(`${skipped_files.length} skipped upgrade card images`)
+  console.log(`${unmatched_files.length} unmatched upgrade card images`)
+  console.log(`${images_to_copy.length} upgrade card images matched`)
 
   return images_to_copy
 }
@@ -426,7 +426,7 @@ const create_vmod_file = (tmp_path, vmod_tmp_path) => new Promise((resolve, reje
   const archive = archiver('zip')
 
   output.on('close', () => {
-    console.log(`New vmod file has been generated @ ${vmod_output_path}`)
+    console.log(`\nNew vmod file has been generated @ ${vmod_output_path}`)
     resolve()
   })
 
