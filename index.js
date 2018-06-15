@@ -24,7 +24,7 @@ import ignored from './ignored.json'
  * - Condition: Cond-{condition_name}.jpg
  * - Damage : Hit-{crit_name}.png
  */
-const vmod_version = '8.0.0'
+const vmod_version = '8.0.5'
 const vmod_filename = `Star_Wars_X-Wing_Miniatures_Game-${vmod_version}.vmod`
 
 const create_tmp_dir = (tmp_dir) => {
@@ -90,6 +90,7 @@ const unzip_vmod = (tmp_dir, vmod_file_path) => new Promise(resolve => {
 
 const match_pilot_images = async (vmod_pilot_image_files, xwing_data_path) => {
   const xwing_data_pilot_data = JSON.parse(fs.readFileSync(path.join(xwing_data_path, 'data', 'pilots.js'), 'utf8'))
+  const xwing_data_ship_data = JSON.parse(fs.readFileSync(path.join(xwing_data_path, 'data', 'ships.js'), 'utf8'))
   let images_to_copy = []
   let unmatched_files = []
   let skipped_files = []
@@ -113,25 +114,28 @@ const match_pilot_images = async (vmod_pilot_image_files, xwing_data_path) => {
           })
         }
       } else {
-        const name = file
-          .replace(/Pilot([-_])/, '')
-          .replace('.jpg', '')
-          .replace(/_/g, ' ')
-          .replace(/ Sq /, ' Squadron ')
-          .replace(/-/, ' ')
+        const name_parts = file.replace('.jpg', '').split('_')
+        const faction = name_parts[1]
+        const ship = name_parts[2]
+        const xws = name_parts[3]
 
-        let pilot = _.find(xwing_data_pilot_data, {name})
+        const filtered_pilots = xwing_data_pilot_data.filter(pilot => {
+          const same_xws = pilot.xws === xws
+          const pilot_faction = pilot.faction.toLowerCase().replace(/ /g, '')
+          const same_faction = pilot_faction === faction
+          const ship_data = _.find(xwing_data_ship_data, { xws: ship })
 
-        if (!pilot) {
-          const foundPilots = xwing_data_pilot_data.filter(p => {
-            const p_name = p.name.toLowerCase()
-            const file_name = `"${name.toLowerCase()}"`
-            return p_name === file_name
-          })
+          if (!ship_data) return false
 
-          if (foundPilots && foundPilots.length === 1) {
-            pilot = foundPilots[0]
-          }
+          const same_ship = pilot.ship === ship_data.name
+
+          return same_xws && same_faction && same_ship
+        })
+        
+        let pilot
+
+        if (filtered_pilots.length === 1) {
+          pilot = filtered_pilots[0]
         }
 
         if (pilot) {
@@ -141,7 +145,7 @@ const match_pilot_images = async (vmod_pilot_image_files, xwing_data_path) => {
             xwing_data: { image: pilot.image }
           })
         } else {
-          unmatched_files.push({file, name})
+          unmatched_files.push({file, xws, faction, ship})
         }
       }
     }
@@ -152,6 +156,10 @@ const match_pilot_images = async (vmod_pilot_image_files, xwing_data_path) => {
   console.log(`${skipped_files.length} skipped pilot card images`)
   console.log(`${unmatched_files.length} unmatched pilot card images`)
   console.log(`${images_to_copy.length} pilot card images matched`)
+
+  if (unmatched_files.length > 0) {
+    console.log(unmatched_files)
+  }
 
   return images_to_copy
 }
@@ -192,7 +200,7 @@ const replace_images = async (images_to_copy, vmod_dir_path, xwing_data_path, wi
 
 const replace_pilot_images = async (vmod_dir_path, xwing_data_path) => {
   const vmod_images_path = path.join(vmod_dir_path, 'images')
-  const vmod_pilot_image_files = fs.readdirSync(vmod_images_path).filter(file => file.startsWith('Pilot'))
+  const vmod_pilot_image_files = fs.readdirSync(vmod_images_path).filter(file => file.startsWith('Pilot_'))
   const images_to_copy = await match_pilot_images(vmod_pilot_image_files, xwing_data_path)
   await replace_images(images_to_copy, vmod_dir_path, xwing_data_path)
 }
