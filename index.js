@@ -24,7 +24,7 @@ import ignored from './ignored.json'
  * - Condition: Cond-{condition_name}.jpg
  * - Damage : Hit-{crit_name}.png
  */
-const vmod_version = '8.0.5'
+const vmod_version = '8.0.9'
 const vmod_filename = `Star_Wars_X-Wing_Miniatures_Game-${vmod_version}.vmod`
 
 const create_tmp_dir = (tmp_dir) => {
